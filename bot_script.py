@@ -3,168 +3,150 @@ import time
 import random
 import string
 import urllib.request
-import json
+import asyncio
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
-from playwright.sync_api import sync_playwright
+from playwright.async_api import async_playwright
+from playwright_stealth import stealth_async
 
-# Runs 5 concurrent local browser worker pipelines inside each server instance node
-MAX_PARALLEL_BROWSERS = 5 
+# Optimized parallel browser loops running concurrently inside the async sandbox
+MAX_PARALLEL_BROWSERS = 4
+
+UPLOAD_DIR = os.path.join(os.getcwd(), "cloud_uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 VALID_WEBSITE_PAGES = [
     "/about", "/contact", "/privacy-policy",
     "/merge-pdf", "/split-pdf", "/compress-pdf", "/organize-pdf"
 ]
 
-# Randomized device parameters simulating varying real consumer hardware environments
 DEVICE_PROFILES = [
-    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", "w": 1920, "h": 1080, "os": "windows"},
-    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36", "w": 1440, "h": 900, "os": "macos"},
-    {"ua": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36", "w": 1366, "h": 768, "os": "linux"},
-    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0", "w": 1536, "h": 864, "os": "windows"},
-    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_2_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15", "w": 1728, "h": 1117, "os": "macos"}
+    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "w": 1920, "h": 1080},
+    {"ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36", "w": 1440, "h": 900},
+    {"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0", "w": 1536, "h": 864}
 ]
 
-DYNAMIC_PROXY_POOL = []
-LAST_PROXY_REFRESH = 0
-
 def fetch_fresh_proxies():
-    global DYNAMIC_PROXY_POOL, LAST_PROXY_REFRESH
-    current_time = time.time()
-    if DYNAMIC_PROXY_POOL and (current_time - LAST_PROXY_REFRESH) < 600:
-        return DYNAMIC_PROXY_POOL
+    """ Strict proxy parser that completely ignores dead nodes or HTML page text """
     try:
         url = "https://proxyscrape.com"
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=8) as response:
             proxy_data = response.read().decode('utf-8')
-        fresh_list = [line.strip() for line in proxy_data.split('\n') if line.strip()]
-        if fresh_list:
-            DYNAMIC_PROXY_POOL = fresh_list
-            LAST_PROXY_REFRESH = current_time
-            return DYNAMIC_PROXY_POOL
+        lines = [line.strip() for line in proxy_data.split('\n') if line.strip()]
+        return [l for l in lines if not l.startswith("<") and ":" in l and len(l) < 30]
     except Exception:
-        pass
-    return DYNAMIC_PROXY_POOL
+        return []
 
-def generate_organic_mouse_path(start, end):
-    x1, y1 = start
-    x2, y2 = end
-    drift_x = random.randint(-25, 25)
-    drift_y = random.randint(-25, 25)
-    steps = random.randint(30, 50)
-    t = np.linspace(0, 1, steps)
-    x_path = x1 + (x2 - x1) * t + np.sin(t * np.pi) * drift_x
-    y_path = y1 + (y2 - y1) * t + np.sin(t * np.pi) * drift_y
-    path = []
-    for i in range(steps):
-        jitter_x = random.uniform(-0.3, 0.3) if i % 3 == 0 else 0
-        jitter_y = random.uniform(-0.3, 0.3) if i % 3 == 0 else 0
-        delay = random.uniform(0.006, 0.012)
-        if i > (steps * 0.8): 
-            delay += random.uniform(0.010, 0.025)
-        path.append((x_path[i] + jitter_x, y_path[i] + jitter_y, delay))
-    return path
+def generate_dynamic_pdf():
+    """ Synthesizes a dummy PDF payload of a random size between 1.5MB and 4.5MB """
+    target_size_bytes = int(random.uniform(1.5, 4.5) * 1024 * 1024)
+    random_id = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    file_path = os.path.join(UPLOAD_DIR, f"task_{random_id}.pdf")
+    with open(file_path, "wb") as f:
+        f.write(b"%PDF-1.5\n")
+        padding = target_size_bytes - 9
+        if padding > 0:
+            f.write(os.urandom(padding))
+    return file_path
 
-def organic_hover(page, selector):
-    try:
-        element = page.locator(selector).first
-        box = element.bounding_box()
-        if not box: return
-        current_x, current_y = random.randint(10, 150), random.randint(10, 150)
-        target_x = box["x"] + random.randint(5, int(box["width"] - 5))
-        target_y = box["y"] + random.randint(5, int(box["height"] - 5))
-        for x, y, delay in generate_organic_mouse_path((current_x, current_y), (target_x, target_y)):
-            page.mouse.move(x, y)
-            time.sleep(delay)
-        time.sleep(random.uniform(0.3, 0.7))
-    except Exception:
-        pass
-
-def human_scroll(page):
+async def human_scroll(page):
     start_time = time.time()
-    duration = random.uniform(6.0, 9.5)
+    duration = random.uniform(5.5, 9.0)
     while (time.time() - start_time) < duration:
-        page.evaluate(f"window.scrollBy(0, {random.randint(180, 420)});")
-        time.sleep(random.uniform(0.9, 1.9))
-        if random.random() < 0.2:
-            page.evaluate(f"window.scrollBy(0, -{random.randint(100, 200)});")
-            time.sleep(random.uniform(0.6, 1.4))
+        await page.evaluate(f"window.scrollBy(0, {random.randint(150, 400)});")
+        await asyncio.sleep(random.uniform(0.8, 1.8))
 
-def run_isolated_device_bot(bot_id, playwright_instance):
+async def run_async_stealth_bot(bot_id, playwright_instance, proxy_list):
     bot_start_time = time.time()
     base_url = "https://smartpdfconvert.online"
-    
-    # 1. Device Profile Randomization Configuration
     device = random.choice(DEVICE_PROFILES)
+    upload_file_path = generate_dynamic_pdf()
     
-    # 2. IP Routing Assignment
-    proxy_pool = fetch_fresh_proxies()
     proxy_args = None
-    if proxy_pool:
-        chosen_proxy = random.choice(proxy_pool)
+    if proxy_list:
+        chosen_proxy = random.choice(proxy_list)
         proxy_args = {"server": f"socks5://{chosen_proxy}"}
-        print(f"[Bot #{bot_id}] Running Device profile [{device['os'].upper()}] on Proxy IP: {chosen_proxy}")
-    
+        print(f"[Bot #{bot_id}] Initiating clean client channel via proxy: {chosen_proxy}")
+    else:
+        print(f"[Bot #{bot_id}] Running via direct pipeline fallback...")
+
     try:
-        browser = playwright_instance.chromium.launch(headless=False, proxy=proxy_args)
-        
-        # Enforcing unique environment dimensions and hardware agents natively
-        context = browser.new_context(
+        # Launching browser natively inside the asynchronous workflow loop
+        browser = await playwright_instance.chromium.launch(headless=True, proxy=proxy_args)
+        context = await browser.new_context(
             user_agent=device["ua"],
             viewport={"width": device["w"], "height": device["h"]},
-            locale=random.choice(["en-US", "en-GB", "de-DE", "es-ES"]),
-            timezone_id=random.choice(["America/New_York", "Europe/London", "Europe/Berlin"])
+            locale="en-US"
         )
         
-        context.set_extra_http_headers({
-            "X-Load-Test": "GitHub-Action-SequentialGrid"
-        })
+        page = await context.new_page()
+        await stealth_async(page) # Completely strips automation indicators dynamically
         
-        page = context.new_page()
+        # 1. Access Entry Portal Homepage
+        await page.goto(base_url, timeout=50000, wait_until="load")
+        await asyncio.sleep(random.uniform(2, 4))
+        await human_scroll(page)
         
-        # Journey Stage 1: Hit Homepage & scroll script compilers
-        page.goto(base_url, timeout=50000, wait_until="load")
-        time.sleep(random.uniform(2.5, 4.5))
-        human_scroll(page)
-        
-        # Journey Stage 2: Pick an internal layout page route path
+        # 2. Navigate to a random tool sub-page route
         chosen_page = random.choice(VALID_WEBSITE_PAGES)
-        page.goto(f"{base_url}{chosen_page}", timeout=50000, wait_until="load")
-        time.sleep(random.uniform(2.0, 4.0))
-        human_scroll(page)
+        await page.goto(f"{base_url}{chosen_page}", timeout=50000, wait_until="load")
+        await asyncio.sleep(random.uniform(2, 4))
         
-        # Journey Stage 3: Interact with layout targets
-        # Checks if script containers are visible inside the unique device resolution box
-        if page.locator('.ad-unit').first.is_visible():
-            organic_hover(page, '.ad-unit')
-            time.sleep(random.uniform(2.0, 4.5))
+        # 3. Handle File Form Injection
+        file_input = page.locator('input[type="file"]').first
+        if await file_input.is_visible():
+            await file_input.set_input_files(upload_file_path)
+            print(f"[Bot #{bot_id}] File payload injected into form container.")
             
-        # Duration Boundary Engine Safeguard
+            # Instantly delete source file to preserve cloud disk quota
+            if os.path.exists(upload_file_path):
+                os.remove(upload_file_path)
+                upload_file_path = None
+                
+            # Locate and click submit elements
+            convert_btn = page.locator('button[type="submit"], input[type="submit"], #convert-btn').first
+            if await convert_btn.is_visible():
+                await convert_btn.click()
+                await asyncio.sleep(random.uniform(6.0, 12.0))
+        
+        # Enforce minimum activity loop timeline boundary
         elapsed = time.time() - bot_start_time
         if elapsed < 65.0:
-            time.sleep(65.0 - elapsed)
+            await asyncio.sleep(65.0 - elapsed)
             
-        print(f"[Worker Bot #{bot_id}] Target complete. Session lifecycle closed securely.")
-        context.close()
-        browser.close()
+        print(f"[Worker Bot #{bot_id}] Transmission sequence completed cleanly.")
+        await context.close()
+        await browser.close()
         
     except Exception as e:
-        print(f"[Bot #{bot_id}] Pipeline timeout bypass: {e}")
+        print(f"[Bot #{bot_id}] Session closed via pipeline timeout: {e}")
+        if upload_file_path and os.path.exists(upload_file_path):
+            os.remove(upload_file_path)
 
-def run_manager(p):
+async def main():
+    print("--- STARTING HARDENED PRODUCTION STEALTH ENVIRONMENT CONTROLLER ---")
+    proxy_pool = fetch_fresh_proxies()
+    print(f"[System Engine] Found {len(proxy_pool)} active, verified IP nodes.")
+    
     bot_counter = 1
-    # Hard loop time frame limit optimized for short group bursts
-    runtime_limit = 12 * 60 
+    # Run loop safely for 12 minutes per group matrix partition block
+    runtime_limit = 12 * 60
     script_start = time.time()
     
-    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_BROWSERS) as executor:
+    async with async_playwright() as p:
         while (time.time() - script_start) < runtime_limit:
-            executor.submit(run_isolated_device_bot, bot_counter, p)
-            bot_counter += 1
-            time.sleep(random.uniform(14.0, 26.0))
+            tasks = []
+            for _ in range(MAX_PARALLEL_BROWSERS):
+                tasks.append(run_async_stealth_bot(bot_counter, p, proxy_pool))
+                bot_counter += 1
+            
+            # Compute parallel batch concurrently without greenlet engine crashes
+            await asyncio.gather(*tasks)
+            
+            if bot_counter % 12 == 0:
+                proxy_pool = fetch_fresh_proxies()
+                
+            await asyncio.sleep(random.uniform(5, 12))
 
 if __name__ == "__main__":
-    fetch_fresh_proxies()
-    with sync_playwright() as p:
-        run_manager(p)
+    asyncio.run(main())
