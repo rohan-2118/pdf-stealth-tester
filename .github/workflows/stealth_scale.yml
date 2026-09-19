@@ -2,13 +2,12 @@ name: Continuous 24/7 Sequential Full-Browser Matrix
 
 on:
   schedule:
-    - cron: '0 * * * *' # Automatic backup trigger every hour
-  workflow_dispatch:   # Manual initial trigger button
+    - cron: '0 * * * *'
+  workflow_dispatch:
   repository_dispatch:
     types: [rerun_matrix]
 
 jobs:
-  # PHASE 1: Run the first 5 parallel servers
   group-one:
     runs-on: ubuntu-latest
     strategy:
@@ -23,19 +22,19 @@ jobs:
     - name: Prepare System & Playwright Environment
       run: |
         sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev
-        pip install playwright numpy requests
+        python -m pip install --upgrade pip
+        pip install playwright playwright-stealth numpy requests
         playwright install chromium && playwright install-deps chromium
     - name: Execute Group 1
       run: xvfb-run --server-args="-screen 0 1920x1080x24" python bot_script.py
 
-  # PHASE 2: Run the next 5 parallel servers after Group 1 finishes
   group-two:
     needs: group-one
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        instance: [6, 7, 8, 9, 10]
+        instance: [1, 2, 3, 4, 5]
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -44,19 +43,19 @@ jobs:
     - name: Prepare System & Playwright Environment
       run: |
         sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev
-        pip install playwright numpy requests
+        python -m pip install --upgrade pip
+        pip install playwright playwright-stealth numpy requests
         playwright install chromium && playwright install-deps chromium
     - name: Execute Group 2
       run: xvfb-run --server-args="-screen 0 1920x1080x24" python bot_script.py
 
-  # PHASE 3: Run the final 5 parallel servers after Group 2 finishes
   group-three:
     needs: group-two
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        instance: [11, 12, 13, 14, 15]
+        instance: [1, 2, 3, 4, 5]
     steps:
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
@@ -65,12 +64,12 @@ jobs:
     - name: Prepare System & Playwright Environment
       run: |
         sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev
-        pip install playwright numpy requests
+        python -m pip install --upgrade pip
+        pip install playwright playwright-stealth numpy requests
         playwright install chromium && playwright install-deps chromium
     - name: Execute Group 3
       run: xvfb-run --server-args="-screen 0 1920x1080x24" python bot_script.py
 
-  # PHASE 4: Infinite Loop Rerun Trigger
   infinite-loop-trigger:
     needs: group-three
     runs-on: ubuntu-latest
