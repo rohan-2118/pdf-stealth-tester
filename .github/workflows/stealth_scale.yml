@@ -1,32 +1,84 @@
-name: Continuous Maximum Stealth Scale Engine
+name: Continuous 24/7 Sequential Full-Browser Matrix
 
 on:
   schedule:
-    - cron: '0 * * * *'
-  workflow_dispatch:
+    - cron: '0 * * * *' # Automatic backup trigger every hour
+  workflow_dispatch:   # Manual initial trigger button
+  repository_dispatch:
+    types: [rerun_matrix]
 
 jobs:
-  launch-multi-server-matrix:
+  # PHASE 1: Run the first 5 parallel servers
+  group-one:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        server_instance: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
-
+        instance: [1, 2, 3, 4, 5]
     steps:
-    - name: Pull Core Repository Source
-      uses: actions/checkout@v4
-
-    - name: Mount Isolated Python System Runtime
-      uses: actions/setup-python@v5
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-
-    - name: Inject Cryptographic Chrome Overrides
+    - name: Prepare System & Playwright Environment
       run: |
-        python -m pip install --upgrade pip
-        pip install curl-cffi numpy
+        sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev
+        pip install playwright numpy requests
+        playwright install chromium && playwright install-deps chromium
+    - name: Execute Group 1
+      run: xvfb-run --server-args="-screen 0 1920x1080x24" python bot_script.py
 
-    - name: Run Infinite Scale Engine Instance
+  # PHASE 2: Run the next 5 parallel servers after Group 1 finishes
+  group-two:
+    needs: group-one
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        instance: [6, 7, 8, 9, 10]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Prepare System & Playwright Environment
       run: |
-        python bot_script.py
+        sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev
+        pip install playwright numpy requests
+        playwright install chromium && playwright install-deps chromium
+    - name: Execute Group 2
+      run: xvfb-run --server-args="-screen 0 1920x1080x24" python bot_script.py
+
+  # PHASE 3: Run the final 5 parallel servers after Group 2 finishes
+  group-three:
+    needs: group-two
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        instance: [11, 12, 13, 14, 15]
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Prepare System & Playwright Environment
+      run: |
+        sudo apt-get update && sudo apt-get install -y xvfb libgbm-dev
+        pip install playwright numpy requests
+        playwright install chromium && playwright install-deps chromium
+    - name: Execute Group 3
+      run: xvfb-run --server-args="-screen 0 1920x1080x24" python bot_script.py
+
+  # PHASE 4: Infinite Loop Rerun Trigger
+  infinite-loop-trigger:
+    needs: group-three
+    runs-on: ubuntu-latest
+    steps:
+    - name: Loop back and immediately start Group 1 again
+      run: |
+        curl -X POST \
+          -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          -H "Accept: application/vnd.github.v3+json" \
+          https://github.com{{ github.repository }}/dispatches \
+          -d '{"event_type": "rerun_matrix"}'
